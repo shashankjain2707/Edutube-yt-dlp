@@ -96,33 +96,45 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Add quotes around URL to handle special characters
-        const command = `yt-dlp -J "https://youtube.com/watch?v=${videoId}"`;
-        console.log(`Executing command: ${command}`);
+        // Use absolute path to yt-dlp and add more options for debugging
+        const command = `/usr/local/bin/yt-dlp -J --verbose "https://youtube.com/watch?v=${videoId}"`;
+        console.log('Starting command execution:', command);
         
-        exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+        exec(command, { timeout: 60000 }, (error, stdout, stderr) => {
+            console.log('Command execution completed');
+            console.log('stdout:', stdout);
+            console.log('stderr:', stderr);
+            
             if (error) {
-                console.error('yt-dlp error:', error);
+                console.error('yt-dlp execution error:', error);
                 console.error('stderr:', stderr);
                 reject(new Error(`yt-dlp failed: ${stderr || error.message}`));
                 return;
             }
             
             if (!stdout) {
+                console.error('No output from yt-dlp');
                 reject(new Error('No output from yt-dlp'));
                 return;
             }
 
             try {
+                console.log('Parsing JSON output');
                 const info = JSON.parse(stdout);
+                
                 if (!info) {
+                    console.error('Parsed info is null or undefined');
                     reject(new Error('Failed to parse video info'));
                     return;
                 }
 
+                console.log('Processing formats');
                 // Filter and validate formats
                 const formats = info.formats
-                    .filter(f => f.ext === 'mp4' && f.url)
+                    .filter(f => {
+                        console.log('Format:', f);
+                        return f.ext === 'mp4' && f.url;
+                    })
                     .map(f => ({
                         url: f.url,
                         ext: f.ext,
@@ -132,18 +144,23 @@ function getVideoInfo(videoId) {
                         format_note: f.format_note || ''
                     }));
 
+                console.log(`Found ${formats.length} valid formats`);
+
                 if (formats.length === 0) {
                     reject(new Error('No valid formats found'));
                     return;
                 }
 
-                resolve({
+                const response = {
                     formats,
                     title: info.title || 'Untitled',
                     description: info.description || '',
                     thumbnail: info.thumbnail || '',
                     duration: info.duration || 0
-                });
+                };
+
+                console.log('Sending response:', response);
+                resolve(response);
             } catch (e) {
                 console.error('Parse error:', e);
                 reject(new Error(`Failed to parse video info: ${e.message}`));
@@ -223,6 +240,18 @@ app.get('/test-ytdlp', (req, res) => {
             status: 'ok',
             version: stdout.trim(),
             message: 'yt-dlp is working'
+        });
+    });
+});
+
+// Add this near your other endpoints
+app.get('/test-ytdlp-path', (req, res) => {
+    exec('which yt-dlp', (error, stdout, stderr) => {
+        res.json({
+            error: error?.message,
+            stdout: stdout,
+            stderr: stderr,
+            path: process.env.PATH
         });
     });
 });
