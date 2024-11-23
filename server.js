@@ -159,7 +159,7 @@ app.get('/playlist/:playlistId', async (req, res) => {
     }
 });
 
-// Update video endpoint to work without cookies
+// Update video endpoint with proper Netscape cookie format
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
     const youtubeToken = req.headers['youtube-token'];
@@ -169,9 +169,17 @@ app.get('/video/:videoId', async (req, res) => {
     }
     
     try {
-        // Create a temporary cookies file with the token
+        // Create a temporary cookies file with proper Netscape format
         const cookiesPath = path.join(__dirname, `${videoId}_cookies.txt`);
-        const cookieData = `youtube.com\tTRUE\t/\tTRUE\t2147483647\tAUTH\t${youtubeToken}`;
+        const cookieData = `# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
+.youtube.com	TRUE	/	TRUE	${Math.floor(Date.now() / 1000) + 3600}	GOOGLE_OAUTH_TOKEN	${youtubeToken}
+.youtube.com	TRUE	/	TRUE	${Math.floor(Date.now() / 1000) + 3600}	LOGIN_INFO	${youtubeToken}
+.youtube.com	TRUE	/	TRUE	${Math.floor(Date.now() / 1000) + 3600}	CONSENT	YES+cb
+.youtube.com	TRUE	/	FALSE	${Math.floor(Date.now() / 1000) + 3600}	VISITOR_INFO1_LIVE	random_string`;
+
         fs.writeFileSync(cookiesPath, cookieData);
         
         // Use the cookies file with yt-dlp
@@ -181,11 +189,16 @@ app.get('/video/:videoId', async (req, res) => {
             --no-warnings \
             --no-call-home \
             --no-playlist \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
             // Clean up cookies file
-            fs.unlinkSync(cookiesPath);
+            try {
+                fs.unlinkSync(cookiesPath);
+            } catch (e) {
+                console.error('Error deleting cookies file:', e);
+            }
             
             if (error) {
                 return res.status(500).json({ 
