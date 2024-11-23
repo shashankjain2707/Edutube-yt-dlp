@@ -157,39 +157,62 @@ app.get('/playlist/:playlistId', async (req, res) => {
     }
 });
 
-// Update video endpoint to use direct cookies
+// Update video endpoint to use YouTube Data API and yt-dlp
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
     const youtubeToken = req.headers['youtube-token'];
     
     try {
-        // Try yt-dlp first without YouTube API
+        // First get video metadata using YouTube API
+        const auth = new google.auth.OAuth2();
+        auth.setCredentials({ access_token: youtubeToken });
+        
+        const videoResponse = await youtube.videos.list({
+            auth: auth,
+            part: 'snippet,contentDetails',
+            id: videoId
+        });
+
+        // Then use yt-dlp with specific options for streaming
         const command = `yt-dlp \
-            --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+            --format "bestvideo[ext=mp4][protocol^=http]+bestaudio[ext=m4a][protocol^=http]/best[ext=mp4][protocol^=http]/best" \
             --no-check-certificate \
             --no-warnings \
             --no-call-home \
             --no-playlist \
-            --print-json \
-            --youtube-skip-dash-manifest \
-            --referer "https://www.youtube.com" \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            --extractor-args "youtube:player_client=android,web" \
+            --user-agent "Mozilla/5.0 (Linux; Android 12; SM-S906N Build/QP1A.190711.020; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/80.0.3987.119 Mobile Safari/537.36" \
             --add-header "Accept-Language: en-US,en;q=0.5" \
-            -j "https://youtube.com/watch?v=${videoId}"`;
+            --add-header "Origin: https://www.youtube.com" \
+            --add-header "Sec-Fetch-Site: same-origin" \
+            --add-header "Sec-Fetch-Mode: navigate" \
+            --add-header "Sec-Fetch-Dest: document" \
+            --add-header "Referer: https://www.youtube.com" \
+            --geo-bypass \
+            --print-json \
+            "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
             if (error) {
                 console.error('yt-dlp error:', error);
-                return res.status(500).json({ 
-                    error: 'Failed to get video info',
-                    details: stderr || error.message
+                // If yt-dlp fails, return just the YouTube API data
+                return res.json({
+                    formats: [{
+                        url: `https://www.youtube.com/watch?v=${videoId}`,
+                        height: 720,
+                        fps: 30,
+                        vcodec: 'avc1'
+                    }],
+                    title: videoResponse.data.items[0].snippet.title,
+                    description: videoResponse.data.items[0].snippet.description,
+                    thumbnail: videoResponse.data.items[0].snippet.thumbnails.high.url
                 });
             }
             
             try {
                 const info = JSON.parse(stdout);
                 const formats = info.formats
-                    .filter(f => f.ext === 'mp4' && f.url)
+                    .filter(f => f.ext === 'mp4' && f.url && f.protocol.startsWith('http'))
                     .map(f => ({
                         url: f.url,
                         height: f.height || 0,
@@ -200,10 +223,9 @@ app.get('/video/:videoId', async (req, res) => {
 
                 res.json({
                     formats,
-                    title: info.title,
-                    description: info.description,
-                    thumbnail: info.thumbnail,
-                    duration: info.duration
+                    title: videoResponse.data.items[0].snippet.title,
+                    description: videoResponse.data.items[0].snippet.description,
+                    thumbnail: videoResponse.data.items[0].snippet.thumbnails.high.url
                 });
             } catch (e) {
                 console.error('Parse error:', e);
