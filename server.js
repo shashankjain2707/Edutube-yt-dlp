@@ -112,19 +112,17 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Add --no-check-certificates and other options to bypass SSL verification
-        const command = `yt-dlp --no-check-certificates --no-warnings --no-call-home --prefer-insecure --format "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" -j "https://youtube.com/watch?v=${videoId}"`;
+        // Use recommended format selection from yt-dlp docs
+        const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --no-check-certificate --no-cache-dir --no-warnings --extract-audio --add-header "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -j "https://youtube.com/watch?v=${videoId}"`;
         console.log('Executing command:', command);
         
-        // Add environment variables to disable SSL verification
+        // Environment variables based on yt-dlp docs
         const env = {
             ...process.env,
+            PYTHONPATH: '/usr/local/lib/python3.8/site-packages',
             PYTHONHTTPSVERIFY: '0',
-            PYTHONWARNINGS: 'ignore:Unverified HTTPS request',
-            REQUESTS_CA_BUNDLE: '',
-            SSL_CERT_FILE: '',
-            CURL_CA_BUNDLE: '',
-            NODE_TLS_REJECT_UNAUTHORIZED: '0'
+            REQUESTS_CA_BUNDLE: '/etc/ssl/certs/ca-certificates.crt',
+            SSL_CERT_FILE: '/etc/ssl/certs/ca-certificates.crt'
         };
 
         exec(command, { 
@@ -132,11 +130,15 @@ function getVideoInfo(videoId) {
             maxBuffer: 10 * 1024 * 1024,
             env: env 
         }, (error, stdout, stderr) => {
-            console.log('Command output:', { stdout, stderr });
-            
             if (error) {
                 console.error('Command execution error:', error);
                 console.error('stderr:', stderr);
+                
+                // Try updating yt-dlp if error occurs
+                exec('yt-dlp -U', (updateError, updateStdout) => {
+                    console.log('yt-dlp update attempt:', updateStdout);
+                });
+                
                 reject(new Error(`yt-dlp error: ${stderr || error.message}`));
                 return;
             }
@@ -145,9 +147,9 @@ function getVideoInfo(videoId) {
                 const info = JSON.parse(stdout);
                 console.log('Successfully parsed video info');
                 
-                // Get all available formats
+                // Process formats according to yt-dlp docs
                 const formats = info.formats
-                    .filter(f => f.ext === 'mp4' && f.url)
+                    .filter(f => f.ext === 'mp4' && f.url && f.vcodec !== 'none')
                     .map(f => ({
                         url: f.url,
                         ext: f.ext,
@@ -156,11 +158,18 @@ function getVideoInfo(videoId) {
                         filesize: f.filesize || 0,
                         format_note: f.format_note || '',
                         vcodec: f.vcodec || 'none',
-                        acodec: f.acodec || 'none'
+                        acodec: f.acodec || 'none',
+                        tbr: f.tbr || 0, // Total bitrate
+                        fps: f.fps || 0
                     }))
-                    .sort((a, b) => b.height - a.height);
+                    .sort((a, b) => {
+                        // Sort by resolution and bitrate
+                        if (a.height !== b.height) return b.height - a.height;
+                        return b.tbr - a.tbr;
+                    });
 
                 if (formats.length === 0) {
+                    // Try fallback format
                     formats.push({
                         url: info.url,
                         ext: 'mp4',
@@ -176,10 +185,12 @@ function getVideoInfo(videoId) {
                     title: info.title || 'Untitled',
                     description: info.description || '',
                     thumbnail: info.thumbnail || '',
-                    duration: info.duration || 0
+                    duration: info.duration || 0,
+                    uploader: info.uploader || '',
+                    view_count: info.view_count || 0
                 };
 
-                console.log('Sending response with formats:', formats.length);
+                console.log(`Found ${formats.length} valid formats`);
                 resolve(response);
             } catch (e) {
                 console.error('Parse error:', e);
