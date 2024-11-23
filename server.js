@@ -162,18 +162,31 @@ app.get('/playlist/:playlistId', async (req, res) => {
 // Update video endpoint to work without cookies
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
+    const youtubeToken = req.headers['youtube-token'];
+    
+    if (!youtubeToken) {
+        return res.status(401).json({ error: 'YouTube token required' });
+    }
     
     try {
-        // Get direct video URL using yt-dlp
+        // Create a temporary cookies file with the token
+        const cookiesPath = path.join(__dirname, `${videoId}_cookies.txt`);
+        const cookieData = `youtube.com\tTRUE\t/\tTRUE\t2147483647\tAUTH\t${youtubeToken}`;
+        fs.writeFileSync(cookiesPath, cookieData);
+        
+        // Use the cookies file with yt-dlp
         const command = `yt-dlp \
             --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-            --no-check-certificate \
+            --cookies "${cookiesPath}" \
             --no-warnings \
             --no-call-home \
             --no-playlist \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
+            // Clean up cookies file
+            fs.unlinkSync(cookiesPath);
+            
             if (error) {
                 return res.status(500).json({ 
                     error: 'Failed to get video URL',
