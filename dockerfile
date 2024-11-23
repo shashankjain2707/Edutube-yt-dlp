@@ -1,24 +1,19 @@
 FROM node:16
 
-# Install Python, pip, and Chrome dependencies
+# Install Python 3.8 and other dependencies
 RUN apt-get update && apt-get install -y \
-    python3 \
+    python3.8 \
     python3-pip \
     ffmpeg \
     curl \
-    chromium \
-    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp with specific version and verify installation
-RUN pip3 install --no-cache-dir yt-dlp==2023.11.16 && \
-    python3 -m pip install --upgrade yt-dlp
+# Set Python 3.8 as default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
 
-# Create symbolic links to yt-dlp in Python's bin directory
-RUN ln -sf /usr/local/bin/yt-dlp /usr/bin/yt-dlp
-
-# Create Chrome data directory
-RUN mkdir -p /root/.config/chromium
+# Install yt-dlp
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir yt-dlp==2023.11.16
 
 # Verify installation
 RUN yt-dlp --version
@@ -36,7 +31,6 @@ COPY . .
 # Final verification
 RUN which yt-dlp || true
 RUN yt-dlp --version || true
-RUN chromium --version || true
 
 EXPOSE 3000
 
