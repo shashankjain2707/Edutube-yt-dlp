@@ -9,7 +9,9 @@ RUN apt-get update && \
     ca-certificates \
     openssl \
     wget \
-    python3-pip && \
+    python3-pip \
+    chromium \
+    chromium-driver && \
     curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && \
@@ -19,12 +21,13 @@ RUN apt-get update && \
 RUN update-ca-certificates --fresh
 RUN mkdir -p /etc/ssl/certs
 
-# Install yt-dlp directly from GitHub release
+# Install yt-dlp and dependencies
 RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp
+    chmod a+rx /usr/local/bin/yt-dlp && \
+    pip3 install --no-cache-dir requests urllib3 certifi selenium
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir requests urllib3 certifi
+# Create Chrome data directory
+RUN mkdir -p /root/.config/chromium
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -41,6 +44,7 @@ RUN python3 --version
 RUN pip3 --version
 RUN /usr/local/bin/yt-dlp --version || true
 RUN node --version
+RUN chromium --version || true
 
 EXPOSE 3000
 
