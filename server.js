@@ -25,22 +25,11 @@ app.use((req, res, next) => {
     next();
 });
 
-// Update CORS configuration
+// CORS configuration - Update this part
 const corsOptions = {
-    origin: function (origin, callback) {
-        // Allow all origins
-        callback(null, true);
-    },
+    origin: '*', // Allow all origins
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-        'Content-Type', 
-        'x-api-key', 
-        'Accept', 
-        'Authorization', 
-        'Origin', 
-        'X-Requested-With',
-        'youtube-token'
-    ],
+    allowedHeaders: ['Content-Type', 'x-api-key', 'youtube-token', 'Authorization'],
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 200
@@ -49,19 +38,24 @@ const corsOptions = {
 // Apply CORS to all routes
 app.use(cors(corsOptions));
 
-// Add OPTIONS handler for preflight requests
+// Add explicit OPTIONS handler for preflight requests
 app.options('*', cors(corsOptions));
 
-// Update headers middleware
+// Add headers middleware
 app.use((req, res, next) => {
+    // Allow all origins
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header(
-        'Access-Control-Allow-Headers', 
-        'Origin, X-Requested-With, Content-Type, Accept, x-api-key, Authorization, youtube-token'
-    );
-    res.header('Access-Control-Allow-Credentials', true);
     
+    // Allow methods
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    
+    // Allow headers
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-api-key, youtube-token, Authorization');
+    
+    // Allow credentials
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    // Handle preflight
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
