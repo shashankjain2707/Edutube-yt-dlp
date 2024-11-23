@@ -1,4 +1,4 @@
-FROM python:3.8-slim
+FROM python:3.11-slim
 
 # Install system dependencies
 RUN apt-get update && \
@@ -19,16 +19,15 @@ RUN apt-get update && \
 RUN update-ca-certificates --fresh
 RUN mkdir -p /etc/ssl/certs
 
-# Install yt-dlp using pip first (as backup)
-RUN pip3 install --no-cache-dir yt-dlp
+# Install yt-dlp using pip
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir yt-dlp
 
-# Then install latest release and make it executable
-RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp && \
-    ln -sf /usr/local/bin/yt-dlp /usr/bin/yt-dlp
+# Create symbolic link
+RUN ln -sf $(which yt-dlp) /usr/local/bin/yt-dlp
 
 # Install Python dependencies
-RUN pip install --no-cache-dir requests urllib3 certifi
+RUN pip3 install --no-cache-dir requests urllib3 certifi
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -40,16 +39,11 @@ RUN npm install
 # Bundle app source
 COPY . .
 
-# Test yt-dlp installation (with error handling)
-RUN python3 -m yt_dlp --version || true
-RUN which yt-dlp || true
-RUN ls -l /usr/local/bin/yt-dlp || true
-RUN ls -l /usr/bin/yt-dlp || true
-
-# Other verifications
+# Test installations
 RUN python3 --version
+RUN pip3 --version
+RUN yt-dlp --version
 RUN node --version
-RUN ls -la /etc/ssl/certs
 
 EXPOSE 3000
 
