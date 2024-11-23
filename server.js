@@ -159,42 +159,32 @@ app.get('/playlist/:playlistId', async (req, res) => {
     }
 });
 
-// Update video endpoint to use cookies-from-browser
+// Update video endpoint to use only Chromium
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
     
     try {
-        // Try with Chromium first, fallback to Firefox
         const command = `yt-dlp \
             --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-            --cookies-from-browser chromium \
+            --no-check-certificate \
             --no-warnings \
             --no-call-home \
             --no-playlist \
             --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            --add-header "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+            --add-header "Accept-Language: en-US,en;q=0.5" \
+            --add-header "DNT: 1" \
+            --cookies-from-browser chromium \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
             if (error) {
-                // Try Firefox if Chromium fails
-                const firefoxCommand = `yt-dlp \
-                    --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-                    --cookies-from-browser firefox \
-                    --no-warnings \
-                    --no-call-home \
-                    --no-playlist \
-                    -j "https://youtube.com/watch?v=${videoId}"`;
-                
-                exec(firefoxCommand, { timeout: 60000 }, (ffError, ffStdout, ffStderr) => {
-                    if (ffError) {
-                        return res.status(500).json({ 
-                            error: 'Failed to get video URL',
-                            details: `Both browsers failed. Chrome: ${stderr}, Firefox: ${ffStderr}`
-                        });
-                    }
-                    processVideoInfo(ffStdout, res);
+                console.error('yt-dlp error:', error);
+                console.error('stderr:', stderr);
+                return res.status(500).json({ 
+                    error: 'Failed to get video URL',
+                    details: stderr || error.message
                 });
-                return;
             }
             
             processVideoInfo(stdout, res);
