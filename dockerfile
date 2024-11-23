@@ -1,11 +1,20 @@
 FROM node:16
 
 # Install Python and pip
-RUN apt-get update && apt-get install -y python3 python3-pip ffmpeg
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    ffmpeg \
+    curl
 
 # Install yt-dlp with specific version and verify installation
-RUN pip3 install --no-cache-dir yt-dlp==2023.11.16 && \
-    yt-dlp --version
+RUN pip3 install --no-cache-dir yt-dlp==2023.11.16
+
+# Create symbolic link to make yt-dlp accessible
+RUN ln -s /usr/local/bin/yt-dlp /usr/bin/yt-dlp
+
+# Verify installation
+RUN yt-dlp --version
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -18,6 +27,7 @@ RUN npm install
 COPY . .
 
 # Test yt-dlp again after setup
+RUN which yt-dlp
 RUN yt-dlp --version
 
 EXPOSE 3000
