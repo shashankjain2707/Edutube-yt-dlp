@@ -5,16 +5,17 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     ffmpeg \
-    curl
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp with specific version and verify installation
+# Install yt-dlp with specific version
 RUN pip3 install --no-cache-dir yt-dlp==2023.11.16
 
-# Create symbolic link to make yt-dlp accessible
-RUN ln -s /usr/local/bin/yt-dlp /usr/bin/yt-dlp
-
-# Verify installation
-RUN yt-dlp --version
+# Verify yt-dlp installation and create symbolic links
+RUN which yt-dlp && \
+    ln -sf $(which yt-dlp) /usr/local/bin/yt-dlp && \
+    ln -sf $(which yt-dlp) /usr/bin/yt-dlp && \
+    yt-dlp --version
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -26,8 +27,7 @@ RUN npm install
 # Bundle app source
 COPY . .
 
-# Test yt-dlp again after setup
-RUN which yt-dlp
+# Final verification
 RUN yt-dlp --version
 
 EXPOSE 3000
