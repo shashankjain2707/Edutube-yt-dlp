@@ -159,116 +159,105 @@ app.get('/playlist/:playlistId', async (req, res) => {
     }
 });
 
-// Add function to verify token
-async function verifyYoutubeToken(token) {
-    try {
-        const response = await fetch('https://www.googleapis.com/oauth2/v3/tokeninfo', {
-            method: 'POST',
-            body: new URLSearchParams({ access_token: token })
-        });
-        return response.ok;
-    } catch (error) {
-        return false;
-    }
-}
-
-// Update video endpoint to use token
+// Update video endpoint to use YouTube token
 app.get('/video/:videoId', async (req, res) => {
+    const { videoId } = req.params;
     const youtubeToken = req.headers['youtube-token'];
     
-    if (youtubeToken && await verifyYoutubeToken(youtubeToken)) {
-        const { videoId } = req.params;
-        
-        if (!videoId.match(/^[a-zA-Z0-9_-]{11}$/)) {
-            return res.status(400).json({ error: 'Invalid video ID' });
-        }
-        
-        try {
-            console.log(`Processing video request for ID: ${videoId}`);
-            // Using cookies approach with secure storage
-            const command = `yt-dlp \
-                --cookies /usr/src/app/youtube.com_cookies.txt \
-                --format-sort "res:1080,fps,codec:h264" \
-                --no-check-certificate \
-                --no-warnings \
-                -j "https://youtube.com/watch?v=${videoId}"`;
-                
-            console.log('Executing command:', command);
+    if (!videoId.match(/^[a-zA-Z0-9_-]{11}$/)) {
+        return res.status(400).json({ error: 'Invalid video ID' });
+    }
+    
+    if (!youtubeToken) {
+        return res.status(401).json({ error: 'YouTube token required' });
+    }
+    
+    try {
+        console.log(`Processing video request for ID: ${videoId}`);
+        // Use YouTube token in the command
+        const command = `yt-dlp \
+            --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+            --no-check-certificate \
+            --no-warnings \
+            --no-call-home \
+            --access-token "${youtubeToken}" \
+            --no-playlist \
+            -j "https://youtube.com/watch?v=${videoId}"`;
+            
+        console.log('Executing command:', command);
 
-            exec(command, { timeout: 60000 }, (error, stdout, stderr) => {
-                if (error) {
-                    console.error('Command execution error:', error);
-                    console.error('stderr:', stderr);
-                    return res.status(500).json({ 
-                        error: 'Failed to fetch video info',
-                        details: stderr || error.message,
-                        videoId: videoId
-                    });
-                }
-                
-                try {
-                    const info = JSON.parse(stdout);
-                    // Filter and process formats
-                    const formats = info.formats
-                        .filter(f => 
-                            f.ext === 'mp4' && 
-                            f.url && 
-                            f.vcodec !== 'none' &&
-                            !f.url.includes('manifest')
-                        )
-                        .map(f => ({
-                            url: f.url,
-                            ext: f.ext,
-                            height: f.height || 0,
-                            width: f.width || 0,
-                            filesize: f.filesize || 0,
-                            format_note: f.format_note || '',
-                            vcodec: f.vcodec || 'none',
-                            acodec: f.acodec || 'none',
-                            tbr: f.tbr || 0,
-                            fps: f.fps || 0,
-                            protocol: f.protocol
-                        }))
-                        .sort((a, b) => b.height - a.height);
+        exec(command, { 
+            timeout: 60000,
+            env: {
+                ...process.env,
+                PYTHONHTTPSVERIFY: '0'
+            }
+        }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('Command execution error:', error);
+                console.error('stderr:', stderr);
+                return res.status(500).json({ 
+                    error: 'Failed to fetch video info',
+                    details: stderr || error.message,
+                    videoId: videoId
+                });
+            }
+            
+            try {
+                const info = JSON.parse(stdout);
+                const formats = info.formats
+                    .filter(f => 
+                        f.ext === 'mp4' && 
+                        f.url && 
+                        f.vcodec !== 'none' &&
+                        !f.url.includes('manifest')
+                    )
+                    .map(f => ({
+                        url: f.url,
+                        ext: f.ext,
+                        height: f.height || 0,
+                        width: f.width || 0,
+                        filesize: f.filesize || 0,
+                        format_note: f.format_note || '',
+                        vcodec: f.vcodec || 'none',
+                        acodec: f.acodec || 'none',
+                        tbr: f.tbr || 0,
+                        fps: f.fps || 0,
+                        protocol: f.protocol
+                    }))
+                    .sort((a, b) => b.height - a.height);
 
-                    if (formats.length === 0) {
-                        throw new Error('No formats available');
-                    }
+                const response = {
+                    formats,
+                    title: info.title || 'Untitled',
+                    description: info.description || '',
+                    thumbnail: info.thumbnail || '',
+                    duration: info.duration || 0,
+                    videoId: videoId,
+                    uploader: info.uploader || '',
+                    uploadDate: info.upload_date || '',
+                    viewCount: info.view_count || 0
+                };
 
-                    const response = {
-                        formats,
-                        title: info.title || 'Untitled',
-                        description: info.description || '',
-                        thumbnail: info.thumbnail || '',
-                        duration: info.duration || 0,
-                        videoId: videoId,
-                        uploader: info.uploader || '',
-                        uploadDate: info.upload_date || '',
-                        viewCount: info.view_count || 0
-                    };
-
-                    console.log(`Found ${formats.length} valid formats`);
-                    res.json(response);
-                } catch (e) {
-                    console.error('Parse error:', e);
-                    console.error('Raw stdout:', stdout);
-                    res.status(500).json({ 
-                        error: 'Failed to parse video info',
-                        details: e.message,
-                        videoId: videoId
-                    });
-                }
-            });
-        } catch (error) {
-            console.error('Error processing video:', error);
-            res.status(500).json({ 
-                error: 'Server error',
-                details: error.message,
-                videoId: videoId
-            });
-        }
-    } else {
-        return res.status(401).json({ error: 'Unauthorized' });
+                console.log(`Found ${formats.length} valid formats`);
+                res.json(response);
+            } catch (e) {
+                console.error('Parse error:', e);
+                console.error('Raw stdout:', stdout);
+                res.status(500).json({ 
+                    error: 'Failed to parse video info',
+                    details: e.message,
+                    videoId: videoId
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Error processing video:', error);
+        res.status(500).json({ 
+            error: 'Server error',
+            details: error.message,
+            videoId: videoId
+        });
     }
 });
 
