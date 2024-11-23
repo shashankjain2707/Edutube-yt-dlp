@@ -10,14 +10,22 @@ app.use((req, res, next) => {
     next();
 });
 
-// CORS configuration
-app.use(cors({
+// Update CORS configuration at the top of the file
+const corsOptions = {
     origin: '*',
-    methods: ['GET', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'x-api-key', 'Accept'],
+    methods: ['GET', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'x-api-key', 'Accept', 'Authorization'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
     credentials: true,
-    optionsSuccessStatus: 200
-}));
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+};
+
+// Apply CORS to all routes
+app.use(cors(corsOptions));
+
+// Add preflight handler for all routes
+app.options('*', cors(corsOptions));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -33,12 +41,9 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', message: 'Server is running' });
 });
 
-// Add OPTIONS handler for preflight requests
-app.options('*', cors());
-
-// API key verification middleware
+// Update API key middleware
 app.use((req, res, next) => {
-    // Skip API key check for health endpoint and OPTIONS requests
+    // Skip API key check for health check and OPTIONS
     if (req.path === '/health' || req.method === 'OPTIONS') {
         return next();
     }
@@ -48,6 +53,14 @@ app.use((req, res, next) => {
         console.log('Unauthorized access attempt');
         return res.status(401).json({ error: 'Unauthorized' });
     }
+    next();
+});
+
+// Add custom headers middleware
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS, POST, PUT, PATCH, DELETE');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Accept, Authorization');
     next();
 });
 
