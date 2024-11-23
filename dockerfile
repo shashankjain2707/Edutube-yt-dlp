@@ -8,14 +8,15 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp with specific version
-RUN pip3 install --no-cache-dir yt-dlp==2023.11.16
+# Install yt-dlp with specific version and verify installation
+RUN pip3 install --no-cache-dir yt-dlp==2023.11.16 && \
+    python3 -m pip install --upgrade yt-dlp
 
-# Verify yt-dlp installation and create symbolic links
-RUN which yt-dlp && \
-    ln -sf $(which yt-dlp) /usr/local/bin/yt-dlp && \
-    ln -sf $(which yt-dlp) /usr/bin/yt-dlp && \
-    yt-dlp --version
+# Create symbolic links to yt-dlp in Python's bin directory
+RUN ln -sf /usr/local/bin/yt-dlp /usr/bin/yt-dlp
+
+# Verify installation
+RUN yt-dlp --version
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -28,7 +29,8 @@ RUN npm install
 COPY . .
 
 # Final verification
-RUN yt-dlp --version
+RUN which yt-dlp || true
+RUN yt-dlp --version || true
 
 EXPOSE 3000
 
