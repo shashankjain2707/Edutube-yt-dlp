@@ -62,40 +62,78 @@ app.get('/video/:videoId', async (req, res) => {
     try {
         console.log(`Fetching info for video: ${videoId}`);
         const videoInfo = await getVideoInfo(videoId);
+        
+        // Validate response before sending
+        if (!videoInfo.formats || videoInfo.formats.length === 0) {
+            throw new Error('No valid formats available');
+        }
+
+        console.log(`Successfully fetched video info. Found ${videoInfo.formats.length} formats`);
         res.json(videoInfo);
     } catch (error) {
         console.error('Error fetching video:', error);
+        // Send more detailed error response
         res.status(500).json({ 
             error: 'Failed to fetch video info',
-            details: error.message 
+            details: error.message,
+            videoId: videoId
         });
     }
 });
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        const command = `yt-dlp -J https://youtube.com/watch?v=${videoId}`;
+        // Add quotes around URL to handle special characters
+        const command = `yt-dlp -J "https://youtube.com/watch?v=${videoId}"`;
         console.log(`Executing command: ${command}`);
         
         exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
             if (error) {
                 console.error('yt-dlp error:', error);
-                reject(error);
+                console.error('stderr:', stderr);
+                reject(new Error(`yt-dlp failed: ${stderr || error.message}`));
                 return;
             }
             
+            if (!stdout) {
+                reject(new Error('No output from yt-dlp'));
+                return;
+            }
+
             try {
                 const info = JSON.parse(stdout);
+                if (!info) {
+                    reject(new Error('Failed to parse video info'));
+                    return;
+                }
+
+                // Filter and validate formats
+                const formats = info.formats
+                    .filter(f => f.ext === 'mp4' && f.url)
+                    .map(f => ({
+                        url: f.url,
+                        ext: f.ext,
+                        height: f.height || 0,
+                        width: f.width || 0,
+                        filesize: f.filesize || 0,
+                        format_note: f.format_note || ''
+                    }));
+
+                if (formats.length === 0) {
+                    reject(new Error('No valid formats found'));
+                    return;
+                }
+
                 resolve({
-                    formats: info.formats.filter(f => f.ext === 'mp4'),
-                    title: info.title,
-                    description: info.description,
-                    thumbnail: info.thumbnail,
-                    duration: info.duration
+                    formats,
+                    title: info.title || 'Untitled',
+                    description: info.description || '',
+                    thumbnail: info.thumbnail || '',
+                    duration: info.duration || 0
                 });
             } catch (e) {
                 console.error('Parse error:', e);
-                reject(e);
+                reject(new Error(`Failed to parse video info: ${e.message}`));
             }
         });
     });
@@ -155,6 +193,24 @@ app.get('/test', (req, res) => {
         message: 'Test endpoint working',
         headers: req.headers,
         apiKey: req.headers['x-api-key'] === process.env.API_KEY ? 'valid' : 'invalid'
+    });
+});
+
+// Add a test endpoint for yt-dlp version
+app.get('/test-ytdlp', (req, res) => {
+    exec('yt-dlp --version', (error, stdout, stderr) => {
+        if (error) {
+            return res.status(500).json({
+                error: 'yt-dlp test failed',
+                details: error.message,
+                stderr: stderr
+            });
+        }
+        res.json({
+            status: 'ok',
+            version: stdout.trim(),
+            message: 'yt-dlp is working'
+        });
     });
 });
 
