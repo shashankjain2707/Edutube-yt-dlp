@@ -26,8 +26,13 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-// API key verification
+// API key verification middleware - but skip for health check
 app.use((req, res, next) => {
+    // Skip API key check for health endpoint
+    if (req.path === '/health') {
+        return next();
+    }
+
     const apiKey = req.headers['x-api-key'];
     if (!apiKey || apiKey !== process.env.API_KEY) {
         console.log('Unauthorized access attempt');
@@ -38,7 +43,7 @@ app.use((req, res, next) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', message: 'Server is running' });
 });
 
 // Video info endpoint
@@ -90,6 +95,54 @@ function getVideoInfo(videoId) {
         });
     });
 }
+
+// Update the playlist endpoint
+app.get('/playlist/:playlistId', async (req, res) => {
+    const { playlistId } = req.params;
+    
+    if (!playlistId) {
+        return res.status(400).json({ error: 'Missing playlist ID' });
+    }
+    
+    try {
+        console.log(`Fetching playlist info: ${playlistId}`);
+        const command = `yt-dlp -J --flat-playlist "https://www.youtube.com/playlist?list=${playlistId}"`;
+        
+        exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('yt-dlp error:', error);
+                return res.status(500).json({ 
+                    error: 'Failed to fetch playlist',
+                    details: error.message
+                });
+            }
+            
+            try {
+                const info = JSON.parse(stdout);
+                const playlistInfo = {
+                    title: info.title,
+                    videos: info.entries.map(entry => ({
+                        id: entry.id,
+                        title: entry.title
+                    }))
+                };
+                res.json(playlistInfo);
+            } catch (e) {
+                console.error('Parse error:', e);
+                res.status(500).json({ 
+                    error: 'Failed to parse playlist info',
+                    details: e.message
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Error in playlist endpoint:', error);
+        res.status(500).json({ 
+            error: 'Server error',
+            details: error.message
+        });
+    }
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
