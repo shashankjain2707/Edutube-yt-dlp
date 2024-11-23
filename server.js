@@ -82,7 +82,66 @@ app.use((req, res, next) => {
     next();
 });
 
-// Video info endpoint
+// Playlist endpoint to fetch all videos in a playlist
+app.get('/playlist/:playlistId', async (req, res) => {
+    const { playlistId } = req.params;
+    
+    if (!playlistId) {
+        return res.status(400).json({ error: 'Missing playlist ID' });
+    }
+    
+    try {
+        console.log(`Fetching playlist info: ${playlistId}`);
+        // Get playlist info with video details
+        const command = `yt-dlp --no-check-certificate --no-warnings --print-json --flat-playlist --extract-flat "https://www.youtube.com/playlist?list=${playlistId}"`;
+        
+        exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('yt-dlp error:', error);
+                return res.status(500).json({ 
+                    error: 'Failed to fetch playlist',
+                    details: error.message
+                });
+            }
+            
+            try {
+                // Process each line as a separate JSON object
+                const videos = stdout.trim().split('\n')
+                    .map(line => JSON.parse(line))
+                    .map(entry => ({
+                        id: entry.id,
+                        title: entry.title,
+                        description: entry.description || '',
+                        thumbnail: entry.thumbnail || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`,
+                        duration: entry.duration || 0,
+                        url: `https://youtube.com/watch?v=${entry.id}`
+                    }));
+
+                const playlistInfo = {
+                    title: videos[0]?.playlist_title || 'Playlist',
+                    videos: videos,
+                    totalVideos: videos.length
+                };
+
+                res.json(playlistInfo);
+            } catch (e) {
+                console.error('Parse error:', e);
+                res.status(500).json({ 
+                    error: 'Failed to parse playlist info',
+                    details: e.message
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Error in playlist endpoint:', error);
+        res.status(500).json({ 
+            error: 'Server error',
+            details: error.message
+        });
+    }
+});
+
+// Video streaming endpoint
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
     
@@ -112,162 +171,65 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Simplified command focusing on direct streaming formats
+        // Command to get video formats and info with better quality selection
         const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
             --no-check-certificate \
-            --no-cache-dir \
             --no-warnings \
             --no-playlist \
-            --no-cookies \
             --format-sort quality \
-            --prefer-free-formats \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            --no-sponsorblock \
+            --no-embed-chapters \
+            --no-embed-info-json \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         console.log('Executing command:', command);
 
-        const env = {
-            ...process.env,
-            PYTHONHTTPSVERIFY: '0'
-        };
-
-        exec(command, { 
-            timeout: 60000, 
-            maxBuffer: 10 * 1024 * 1024,
-            env: env 
-        }, (error, stdout, stderr) => {
+        exec(command, { timeout: 60000 }, (error, stdout, stderr) => {
             if (error) {
                 console.error('Command execution error:', error);
                 console.error('stderr:', stderr);
-                
-                // Try fallback format
-                const fallbackCommand = `yt-dlp -f "best[ext=mp4]/best" --no-check-certificate --no-cookies -j "https://youtube.com/watch?v=${videoId}"`;
-                exec(fallbackCommand, { timeout: 60000, env: env }, (fallbackError, fallbackStdout, fallbackStderr) => {
-                    if (fallbackError) {
-                        reject(new Error(`yt-dlp error: ${stderr || error.message}`));
-                        return;
-                    }
-                    try {
-                        const info = JSON.parse(fallbackStdout);
-                        processVideoInfo(info, resolve, reject);
-                    } catch (e) {
-                        reject(new Error(`Failed to parse video info: ${e.message}`));
-                    }
-                });
+                reject(new Error(`yt-dlp error: ${stderr || error.message}`));
                 return;
             }
             
             try {
                 const info = JSON.parse(stdout);
-                processVideoInfo(info, resolve, reject);
+                const formats = info.formats
+                    .filter(f => f.ext === 'mp4' && f.url && f.vcodec !== 'none')
+                    .map(f => ({
+                        url: f.url,
+                        ext: f.ext,
+                        height: f.height || 0,
+                        width: f.width || 0,
+                        filesize: f.filesize || 0,
+                        format_note: f.format_note || '',
+                        vcodec: f.vcodec || 'none',
+                        acodec: f.acodec || 'none',
+                        tbr: f.tbr || 0,
+                        fps: f.fps || 0
+                    }))
+                    .sort((a, b) => b.height - a.height);
+
+                const response = {
+                    formats,
+                    title: info.title,
+                    description: info.description,
+                    thumbnail: info.thumbnail,
+                    duration: info.duration,
+                    uploader: info.uploader,
+                    view_count: info.view_count,
+                    videoId: videoId
+                };
+
+                console.log(`Found ${formats.length} valid formats`);
+                resolve(response);
             } catch (e) {
                 console.error('Parse error:', e);
-                console.error('Raw stdout:', stdout);
                 reject(new Error(`Failed to parse video info: ${e.message}`));
             }
         });
     });
 }
-
-function processVideoInfo(info, resolve, reject) {
-    console.log('Successfully parsed video info');
-    
-    const formats = info.formats
-        .filter(f => f.ext === 'mp4' && f.url && f.vcodec !== 'none')
-        .map(f => ({
-            url: f.url,
-            ext: f.ext,
-            height: f.height || 0,
-            width: f.width || 0,
-            filesize: f.filesize || 0,
-            format_note: f.format_note || '',
-            vcodec: f.vcodec || 'none',
-            acodec: f.acodec || 'none',
-            tbr: f.tbr || 0,
-            fps: f.fps || 0
-        }))
-        .sort((a, b) => {
-            if (a.height !== b.height) return b.height - a.height;
-            return b.tbr - a.tbr;
-        });
-
-    if (formats.length === 0 && info.url) {
-        formats.push({
-            url: info.url,
-            ext: 'mp4',
-            height: info.height || 720,
-            width: info.width || 1280,
-            filesize: 0,
-            format_note: 'Default'
-        });
-    }
-
-    if (formats.length === 0) {
-        reject(new Error('No valid formats found'));
-        return;
-    }
-
-    const response = {
-        formats,
-        title: info.title || 'Untitled',
-        description: info.description || '',
-        thumbnail: info.thumbnail || '',
-        duration: info.duration || 0,
-        uploader: info.uploader || '',
-        view_count: info.view_count || 0
-    };
-
-    console.log(`Found ${formats.length} valid formats`);
-    resolve(response);
-}
-
-// Update the playlist endpoint
-app.get('/playlist/:playlistId', async (req, res) => {
-    const { playlistId } = req.params;
-    
-    if (!playlistId) {
-        return res.status(400).json({ error: 'Missing playlist ID' });
-    }
-    
-    try {
-        console.log(`Fetching playlist info: ${playlistId}`);
-        const command = `yt-dlp -J --flat-playlist "https://www.youtube.com/playlist?list=${playlistId}"`;
-        
-        exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
-            if (error) {
-                console.error('yt-dlp error:', error);
-                return res.status(500).json({ 
-                    error: 'Failed to fetch playlist',
-                    details: error.message
-                });
-            }
-            
-            try {
-                const info = JSON.parse(stdout);
-                const playlistInfo = {
-                    title: info.title,
-                    videos: info.entries.map(entry => ({
-                        id: entry.id,
-                        title: entry.title
-                    }))
-                };
-                res.json(playlistInfo);
-            } catch (e) {
-                console.error('Parse error:', e);
-                res.status(500).json({ 
-                    error: 'Failed to parse playlist info',
-                    details: e.message
-                });
-            }
-        });
-    } catch (error) {
-        console.error('Error in playlist endpoint:', error);
-        res.status(500).json({ 
-            error: 'Server error',
-            details: error.message
-        });
-    }
-});
 
 // Add this test endpoint
 app.get('/test', (req, res) => {
