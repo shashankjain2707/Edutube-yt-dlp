@@ -91,19 +91,17 @@ app.get('/video/:videoId', async (req, res) => {
     }
     
     try {
-        console.log(`Fetching info for video: ${videoId}`);
+        console.log(`Processing video request for ID: ${videoId}`);
         const videoInfo = await getVideoInfo(videoId);
         
-        // Validate response before sending
         if (!videoInfo.formats || videoInfo.formats.length === 0) {
             throw new Error('No valid formats available');
         }
 
-        console.log(`Successfully fetched video info. Found ${videoInfo.formats.length} formats`);
+        console.log('Successfully processed video request');
         res.json(videoInfo);
     } catch (error) {
-        console.error('Error fetching video:', error);
-        // Send more detailed error response
+        console.error('Error processing video:', error);
         res.status(500).json({ 
             error: 'Failed to fetch video info',
             details: error.message,
@@ -114,52 +112,38 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Add --no-check-certificate and update format selection
-        const command = `yt-dlp --no-check-certificate --no-warnings --format-sort-force -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" --no-playlist --extract-audio --add-header "Accept-Language:en-US,en;q=0.9" -j "https://youtube.com/watch?v=${videoId}"`;
+        // Simplify the command and add more debug options
+        const command = `yt-dlp --verbose --no-check-certificate --no-cache-dir --format mp4 -j "https://youtube.com/watch?v=${videoId}"`;
         console.log('Executing command:', command);
         
-        // Add environment variables to help with SSL
         const env = {
             ...process.env,
             PYTHONHTTPSVERIFY: '0',
-            REQUESTS_CA_BUNDLE: '',
-            SSL_CERT_FILE: ''
+            PYTHONWARNINGS: 'ignore:Unverified HTTPS request',
+            PATH: process.env.PATH
         };
-        
+
         exec(command, { 
             timeout: 60000, 
             maxBuffer: 10 * 1024 * 1024,
             env: env 
         }, (error, stdout, stderr) => {
+            console.log('Command output:', { stdout, stderr });
+            
             if (error) {
                 console.error('Command execution error:', error);
                 console.error('stderr:', stderr);
-                
-                // Check if yt-dlp is installed and working
-                exec('yt-dlp --version', (vError, vStdout, vStderr) => {
-                    console.log('yt-dlp version check:', {
-                        error: vError,
-                        version: vStdout?.trim(),
-                        stderr: vStderr
-                    });
-                });
-                
                 reject(new Error(`yt-dlp error: ${stderr || error.message}`));
                 return;
             }
             
-            if (!stdout) {
-                reject(new Error('No output from yt-dlp'));
-                return;
-            }
-
             try {
                 const info = JSON.parse(stdout);
                 console.log('Successfully parsed video info');
                 
-                // Filter and map formats
+                // Get all available formats
                 const formats = info.formats
-                    .filter(f => f.ext === 'mp4' && f.url && !f.url.includes('manifest'))
+                    .filter(f => f.ext === 'mp4' && f.url)
                     .map(f => ({
                         url: f.url,
                         ext: f.ext,
@@ -171,19 +155,28 @@ function getVideoInfo(videoId) {
                         acodec: f.acodec || 'none'
                     }))
                     .sort((a, b) => b.height - a.height);
-                
-                console.log(`Found ${formats.length} valid formats`);
+
+                if (formats.length === 0) {
+                    // If no MP4 formats, try getting direct URL
+                    formats.push({
+                        url: info.url,
+                        ext: 'mp4',
+                        height: info.height || 720,
+                        width: info.width || 1280,
+                        filesize: 0,
+                        format_note: 'Default'
+                    });
+                }
 
                 const response = {
                     formats,
                     title: info.title || 'Untitled',
                     description: info.description || '',
                     thumbnail: info.thumbnail || '',
-                    duration: info.duration || 0,
-                    webpage_url: info.webpage_url,
-                    extractor: info.extractor
+                    duration: info.duration || 0
                 };
-                
+
+                console.log('Sending response with formats:', formats.length);
                 resolve(response);
             } catch (e) {
                 console.error('Parse error:', e);
