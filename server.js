@@ -114,8 +114,8 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Add cookies and user-agent to bypass bot detection
-        const command = `yt-dlp -v --no-warnings --cookies-from-browser chrome --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" -j "https://youtube.com/watch?v=${videoId}"`;
+        // Remove cookies-from-browser and simplify the command
+        const command = `yt-dlp -v --no-warnings --format-sort-force --no-check-certificates -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" -j "https://youtube.com/watch?v=${videoId}"`;
         console.log('Executing command:', command);
         
         exec(command, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -145,11 +145,6 @@ function getVideoInfo(videoId) {
                 const info = JSON.parse(stdout);
                 console.log('Successfully parsed video info');
                 
-                // Ensure we have valid formats
-                if (!info.formats || !Array.isArray(info.formats)) {
-                    throw new Error('No formats available');
-                }
-
                 // Filter and map formats
                 const formats = info.formats
                     .filter(f => f.ext === 'mp4' && f.url && !f.url.includes('manifest'))
@@ -162,31 +157,11 @@ function getVideoInfo(videoId) {
                         format_note: f.format_note || '',
                         vcodec: f.vcodec || 'none',
                         acodec: f.acodec || 'none'
-                    }));
+                    }))
+                    .sort((a, b) => b.height - a.height);
                 
                 console.log(`Found ${formats.length} valid formats`);
-                
-                // If no direct formats found, try extracting from manifests
-                if (formats.length === 0) {
-                    const manifestFormats = info.formats
-                        .filter(f => f.ext === 'mp4' && f.url)
-                        .map(f => ({
-                            url: f.url,
-                            ext: f.ext,
-                            height: f.height || 720,
-                            width: f.width || 1280,
-                            filesize: 0,
-                            format_note: 'manifest',
-                            vcodec: f.vcodec || 'none',
-                            acodec: f.acodec || 'none'
-                        }));
-                    formats.push(...manifestFormats);
-                }
 
-                if (formats.length === 0) {
-                    throw new Error('No playable formats found');
-                }
-                
                 const response = {
                     formats,
                     title: info.title || 'Untitled',
@@ -328,8 +303,8 @@ app.get('/test-video-formats/:videoId', async (req, res) => {
     const { videoId } = req.params;
     
     try {
-        // Add cookies and user-agent to test command
-        const command = `yt-dlp -F --cookies-from-browser chrome --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "https://youtube.com/watch?v=${videoId}"`;
+        // Simplified test command
+        const command = `yt-dlp -F --no-warnings --no-check-certificates "https://youtube.com/watch?v=${videoId}"`;
         exec(command, (error, stdout, stderr) => {
             res.json({
                 error: error?.message,
