@@ -6,6 +6,10 @@ const fs = require('fs');
 const path = require('path');
 const app = express();
 
+// Add YouTube API functionality
+const { google } = require('googleapis');
+const youtube = google.youtube('v3');
+
 // Function to setup cookies
 function setupCookies() {
     if (process.env.COOKIES_DATA) {
@@ -156,79 +160,79 @@ app.get('/playlist/:playlistId', async (req, res) => {
 // Update video endpoint to use direct cookies
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
+    const youtubeToken = req.headers['youtube-token'];
+    
+    if (!youtubeToken) {
+        return res.status(401).json({ error: 'YouTube token required' });
+    }
     
     try {
-        // Create a temporary cookies file
-        const cookiesPath = path.join(__dirname, `${videoId}_cookies.txt`);
-        const cookieData = `# Netscape HTTP Cookie File
-.youtube.com	TRUE	/	FALSE	2147483647	CONSENT	YES+cb
-.youtube.com	TRUE	/	FALSE	2147483647	VISITOR_INFO1_LIVE	random_string
-.youtube.com	TRUE	/	FALSE	2147483647	GPS	1
-.youtube.com	TRUE	/	FALSE	2147483647	YSC	${Math.random().toString(36).substring(7)}`;
+        // First get video metadata using YouTube API
+        const auth = new google.auth.OAuth2();
+        auth.setCredentials({ access_token: youtubeToken });
+        
+        const videoResponse = await youtube.videos.list({
+            auth: auth,
+            part: 'snippet,contentDetails',
+            id: videoId
+        });
 
-        fs.writeFileSync(cookiesPath, cookieData);
-
+        // Then use yt-dlp just for the stream URL
         const command = `yt-dlp \
             --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
             --no-check-certificate \
             --no-warnings \
             --no-call-home \
             --no-playlist \
-            --cookies "${cookiesPath}" \
+            --print-json \
+            --youtube-skip-dash-manifest \
+            --referer "https://www.youtube.com" \
             --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            --add-header "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
             --add-header "Accept-Language: en-US,en;q=0.5" \
-            --add-header "DNT: 1" \
-            -j "https://youtube.com/watch?v=${videoId}"`;
+            --get-url \
+            "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
-            // Clean up cookies file
-            try {
-                fs.unlinkSync(cookiesPath);
-            } catch (e) {
-                console.error('Error deleting cookies file:', e);
-            }
-
             if (error) {
                 console.error('yt-dlp error:', error);
-                console.error('stderr:', stderr);
-                return res.status(500).json({ 
-                    error: 'Failed to get video URL',
-                    details: stderr || error.message
+                // If yt-dlp fails, return just the YouTube API data
+                return res.json({
+                    formats: [{
+                        url: `https://www.youtube.com/watch?v=${videoId}`,
+                        height: 720,
+                        fps: 30,
+                        vcodec: 'avc1'
+                    }],
+                    title: videoResponse.data.items[0].snippet.title,
+                    description: videoResponse.data.items[0].snippet.description,
+                    thumbnail: videoResponse.data.items[0].snippet.thumbnails.high.url
                 });
             }
             
-            processVideoInfo(stdout, res);
+            // Parse yt-dlp output for stream URLs
+            const urls = stdout.trim().split('\n');
+            const formats = urls.map((url, index) => ({
+                url: url,
+                height: index === 0 ? 1080 : 720,
+                fps: 30,
+                vcodec: 'avc1'
+            }));
+
+            res.json({
+                formats,
+                title: videoResponse.data.items[0].snippet.title,
+                description: videoResponse.data.items[0].snippet.description,
+                thumbnail: videoResponse.data.items[0].snippet.thumbnails.high.url
+            });
         });
     } catch (error) {
+        console.error('Error:', error);
         res.status(500).json({ 
             error: 'Server error',
             details: error.message
         });
     }
 });
-
-function processVideoInfo(stdout, res) {
-    try {
-        const info = JSON.parse(stdout);
-        const formats = info.formats
-            .filter(f => f.ext === 'mp4' && f.url)
-            .map(f => ({
-                url: f.url,
-                height: f.height || 0,
-                fps: f.fps || 0,
-                vcodec: f.vcodec || ''
-            }))
-            .sort((a, b) => b.height - a.height);
-
-        res.json({ formats });
-    } catch (e) {
-        res.status(500).json({ 
-            error: 'Failed to parse video info',
-            details: e.message
-        });
-    }
-}
 
 // Add this test endpoint
 app.get('/test', (req, res) => {
