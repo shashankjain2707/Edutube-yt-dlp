@@ -162,22 +162,8 @@ app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
     const youtubeToken = req.headers['youtube-token'];
     
-    if (!youtubeToken) {
-        return res.status(401).json({ error: 'YouTube token required' });
-    }
-    
     try {
-        // First get video metadata using YouTube API
-        const auth = new google.auth.OAuth2();
-        auth.setCredentials({ access_token: youtubeToken });
-        
-        const videoResponse = await youtube.videos.list({
-            auth: auth,
-            part: 'snippet,contentDetails',
-            id: videoId
-        });
-
-        // Then use yt-dlp just for the stream URL
+        // Try yt-dlp first without YouTube API
         const command = `yt-dlp \
             --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
             --no-check-certificate \
@@ -189,41 +175,43 @@ app.get('/video/:videoId', async (req, res) => {
             --referer "https://www.youtube.com" \
             --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             --add-header "Accept-Language: en-US,en;q=0.5" \
-            --get-url \
-            "https://youtube.com/watch?v=${videoId}"`;
+            -j "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
             if (error) {
                 console.error('yt-dlp error:', error);
-                // If yt-dlp fails, return just the YouTube API data
-                return res.json({
-                    formats: [{
-                        url: `https://www.youtube.com/watch?v=${videoId}`,
-                        height: 720,
-                        fps: 30,
-                        vcodec: 'avc1'
-                    }],
-                    title: videoResponse.data.items[0].snippet.title,
-                    description: videoResponse.data.items[0].snippet.description,
-                    thumbnail: videoResponse.data.items[0].snippet.thumbnails.high.url
+                return res.status(500).json({ 
+                    error: 'Failed to get video info',
+                    details: stderr || error.message
                 });
             }
             
-            // Parse yt-dlp output for stream URLs
-            const urls = stdout.trim().split('\n');
-            const formats = urls.map((url, index) => ({
-                url: url,
-                height: index === 0 ? 1080 : 720,
-                fps: 30,
-                vcodec: 'avc1'
-            }));
+            try {
+                const info = JSON.parse(stdout);
+                const formats = info.formats
+                    .filter(f => f.ext === 'mp4' && f.url)
+                    .map(f => ({
+                        url: f.url,
+                        height: f.height || 0,
+                        fps: f.fps || 0,
+                        vcodec: f.vcodec || ''
+                    }))
+                    .sort((a, b) => b.height - a.height);
 
-            res.json({
-                formats,
-                title: videoResponse.data.items[0].snippet.title,
-                description: videoResponse.data.items[0].snippet.description,
-                thumbnail: videoResponse.data.items[0].snippet.thumbnails.high.url
-            });
+                res.json({
+                    formats,
+                    title: info.title,
+                    description: info.description,
+                    thumbnail: info.thumbnail,
+                    duration: info.duration
+                });
+            } catch (e) {
+                console.error('Parse error:', e);
+                res.status(500).json({ 
+                    error: 'Failed to parse video info',
+                    details: e.message
+                });
+            }
         });
     } catch (error) {
         console.error('Error:', error);
