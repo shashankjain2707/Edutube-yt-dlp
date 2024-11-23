@@ -114,8 +114,8 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Use more specific format selection and add verbose output
-        const command = `yt-dlp -v --format-sort-force --no-warnings -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" -j "https://youtube.com/watch?v=${videoId}"`;
+        // Add cookies and user-agent to bypass bot detection
+        const command = `yt-dlp -v --no-warnings --cookies-from-browser chrome --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" -j "https://youtube.com/watch?v=${videoId}"`;
         console.log('Executing command:', command);
         
         exec(command, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -328,8 +328,8 @@ app.get('/test-video-formats/:videoId', async (req, res) => {
     const { videoId } = req.params;
     
     try {
-        // Test command to list all available formats
-        const command = `yt-dlp -F "https://youtube.com/watch?v=${videoId}"`;
+        // Add cookies and user-agent to test command
+        const command = `yt-dlp -F --cookies-from-browser chrome --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "https://youtube.com/watch?v=${videoId}"`;
         exec(command, (error, stdout, stderr) => {
             res.json({
                 error: error?.message,
