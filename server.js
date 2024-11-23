@@ -112,14 +112,29 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Use recommended format selection from yt-dlp docs
-        const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" --no-check-certificate --no-cache-dir --no-warnings --extract-audio --add-header "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" -j "https://youtube.com/watch?v=${videoId}"`;
+        // Add cookies and user-agent options
+        const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+            --no-check-certificate \
+            --no-cache-dir \
+            --no-warnings \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            --add-header "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
+            --add-header "Accept-Language: en-US,en;q=0.5" \
+            --add-header "DNT: 1" \
+            --add-header "Connection: keep-alive" \
+            --add-header "Upgrade-Insecure-Requests: 1" \
+            --add-header "Sec-Fetch-Dest: document" \
+            --add-header "Sec-Fetch-Mode: navigate" \
+            --add-header "Sec-Fetch-Site: none" \
+            --add-header "Sec-Fetch-User: ?1" \
+            --geo-bypass \
+            --no-playlist \
+            -j "https://youtube.com/watch?v=${videoId}"`;
+            
         console.log('Executing command:', command);
-        
-        // Environment variables based on yt-dlp docs
+
         const env = {
             ...process.env,
-            PYTHONPATH: '/usr/local/lib/python3.8/site-packages',
             PYTHONHTTPSVERIFY: '0',
             REQUESTS_CA_BUNDLE: '/etc/ssl/certs/ca-certificates.crt',
             SSL_CERT_FILE: '/etc/ssl/certs/ca-certificates.crt'
@@ -134,64 +149,26 @@ function getVideoInfo(videoId) {
                 console.error('Command execution error:', error);
                 console.error('stderr:', stderr);
                 
-                // Try updating yt-dlp if error occurs
-                exec('yt-dlp -U', (updateError, updateStdout) => {
-                    console.log('yt-dlp update attempt:', updateStdout);
+                // Try with a different format if first attempt fails
+                const fallbackCommand = `yt-dlp -f "best[ext=mp4]/best" --no-check-certificate --geo-bypass -j "https://youtube.com/watch?v=${videoId}"`;
+                exec(fallbackCommand, { timeout: 60000, env: env }, (fallbackError, fallbackStdout, fallbackStderr) => {
+                    if (fallbackError) {
+                        reject(new Error(`yt-dlp error: ${stderr || error.message}`));
+                        return;
+                    }
+                    try {
+                        const info = JSON.parse(fallbackStdout);
+                        processVideoInfo(info, resolve, reject);
+                    } catch (e) {
+                        reject(new Error(`Failed to parse video info: ${e.message}`));
+                    }
                 });
-                
-                reject(new Error(`yt-dlp error: ${stderr || error.message}`));
                 return;
             }
             
             try {
                 const info = JSON.parse(stdout);
-                console.log('Successfully parsed video info');
-                
-                // Process formats according to yt-dlp docs
-                const formats = info.formats
-                    .filter(f => f.ext === 'mp4' && f.url && f.vcodec !== 'none')
-                    .map(f => ({
-                        url: f.url,
-                        ext: f.ext,
-                        height: f.height || 0,
-                        width: f.width || 0,
-                        filesize: f.filesize || 0,
-                        format_note: f.format_note || '',
-                        vcodec: f.vcodec || 'none',
-                        acodec: f.acodec || 'none',
-                        tbr: f.tbr || 0, // Total bitrate
-                        fps: f.fps || 0
-                    }))
-                    .sort((a, b) => {
-                        // Sort by resolution and bitrate
-                        if (a.height !== b.height) return b.height - a.height;
-                        return b.tbr - a.tbr;
-                    });
-
-                if (formats.length === 0) {
-                    // Try fallback format
-                    formats.push({
-                        url: info.url,
-                        ext: 'mp4',
-                        height: info.height || 720,
-                        width: info.width || 1280,
-                        filesize: 0,
-                        format_note: 'Default'
-                    });
-                }
-
-                const response = {
-                    formats,
-                    title: info.title || 'Untitled',
-                    description: info.description || '',
-                    thumbnail: info.thumbnail || '',
-                    duration: info.duration || 0,
-                    uploader: info.uploader || '',
-                    view_count: info.view_count || 0
-                };
-
-                console.log(`Found ${formats.length} valid formats`);
-                resolve(response);
+                processVideoInfo(info, resolve, reject);
             } catch (e) {
                 console.error('Parse error:', e);
                 console.error('Raw stdout:', stdout);
@@ -199,6 +176,58 @@ function getVideoInfo(videoId) {
             }
         });
     });
+}
+
+function processVideoInfo(info, resolve, reject) {
+    console.log('Successfully parsed video info');
+    
+    const formats = info.formats
+        .filter(f => f.ext === 'mp4' && f.url && f.vcodec !== 'none')
+        .map(f => ({
+            url: f.url,
+            ext: f.ext,
+            height: f.height || 0,
+            width: f.width || 0,
+            filesize: f.filesize || 0,
+            format_note: f.format_note || '',
+            vcodec: f.vcodec || 'none',
+            acodec: f.acodec || 'none',
+            tbr: f.tbr || 0,
+            fps: f.fps || 0
+        }))
+        .sort((a, b) => {
+            if (a.height !== b.height) return b.height - a.height;
+            return b.tbr - a.tbr;
+        });
+
+    if (formats.length === 0 && info.url) {
+        formats.push({
+            url: info.url,
+            ext: 'mp4',
+            height: info.height || 720,
+            width: info.width || 1280,
+            filesize: 0,
+            format_note: 'Default'
+        });
+    }
+
+    if (formats.length === 0) {
+        reject(new Error('No valid formats found'));
+        return;
+    }
+
+    const response = {
+        formats,
+        title: info.title || 'Untitled',
+        description: info.description || '',
+        thumbnail: info.thumbnail || '',
+        duration: info.duration || 0,
+        uploader: info.uploader || '',
+        view_count: info.view_count || 0
+    };
+
+    console.log(`Found ${formats.length} valid formats`);
+    resolve(response);
 }
 
 // Update the playlist endpoint
