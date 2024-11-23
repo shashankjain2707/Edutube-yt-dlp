@@ -41,10 +41,14 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', message: 'Server is running' });
 });
 
-// Update API key middleware
+// Update API key middleware to skip test endpoints
 app.use((req, res, next) => {
-    // Skip API key check for health check and OPTIONS
-    if (req.path === '/health' || req.method === 'OPTIONS') {
+    // Skip API key check for health check, test endpoints, and OPTIONS
+    if (req.path === '/health' || 
+        req.path === '/test-ytdlp' || 
+        req.path === '/test-ytdlp-path' ||
+        req.path === '/test' ||
+        req.method === 'OPTIONS') {
         return next();
     }
 
@@ -226,16 +230,19 @@ app.get('/test', (req, res) => {
     });
 });
 
-// Add a test endpoint for yt-dlp version
+// Update test endpoints
 app.get('/test-ytdlp', (req, res) => {
+    console.log('Testing yt-dlp version...');
     exec('yt-dlp --version', (error, stdout, stderr) => {
         if (error) {
+            console.error('Error testing yt-dlp:', error);
             return res.status(500).json({
                 error: 'yt-dlp test failed',
                 details: error.message,
                 stderr: stderr
             });
         }
+        console.log('yt-dlp version:', stdout.trim());
         res.json({
             status: 'ok',
             version: stdout.trim(),
@@ -244,15 +251,18 @@ app.get('/test-ytdlp', (req, res) => {
     });
 });
 
-// Add this near your other endpoints
 app.get('/test-ytdlp-path', (req, res) => {
+    console.log('Testing yt-dlp path...');
     exec('which yt-dlp', (error, stdout, stderr) => {
-        res.json({
+        const response = {
             error: error?.message,
-            stdout: stdout,
+            stdout: stdout?.trim(),
             stderr: stderr,
-            path: process.env.PATH
-        });
+            path: process.env.PATH,
+            message: error ? 'yt-dlp not found' : 'yt-dlp found at: ' + stdout.trim()
+        };
+        console.log('Test response:', response);
+        res.json(response);
     });
 });
 
