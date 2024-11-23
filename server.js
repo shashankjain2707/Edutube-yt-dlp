@@ -92,8 +92,8 @@ app.get('/playlist/:playlistId', async (req, res) => {
     
     try {
         console.log(`Fetching playlist info: ${playlistId}`);
-        // Get playlist info with video details
-        const command = `yt-dlp --no-check-certificate --no-warnings --print-json --flat-playlist --extract-flat "https://www.youtube.com/playlist?list=${playlistId}"`;
+        // Remove --extract-flat and use --flat-playlist with --print-json
+        const command = `yt-dlp --no-check-certificate --no-warnings --flat-playlist --print-json "https://www.youtube.com/playlist?list=${playlistId}"`;
         
         exec(command, { timeout: 30000 }, (error, stdout, stderr) => {
             if (error) {
