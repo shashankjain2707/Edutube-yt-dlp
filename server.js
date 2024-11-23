@@ -12,9 +12,11 @@ app.use((req, res, next) => {
 
 // CORS configuration
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*',
-    methods: ['GET'],
-    credentials: true
+    origin: '*',
+    methods: ['GET', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'x-api-key', 'Accept'],
+    credentials: true,
+    optionsSuccessStatus: 200
 }));
 
 // Rate limiting
@@ -26,10 +28,18 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-// API key verification middleware - but skip for health check
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', message: 'Server is running' });
+});
+
+// Add OPTIONS handler for preflight requests
+app.options('*', cors());
+
+// API key verification middleware
 app.use((req, res, next) => {
-    // Skip API key check for health endpoint
-    if (req.path === '/health') {
+    // Skip API key check for health endpoint and OPTIONS requests
+    if (req.path === '/health' || req.method === 'OPTIONS') {
         return next();
     }
 
@@ -39,11 +49,6 @@ app.use((req, res, next) => {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     next();
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', message: 'Server is running' });
 });
 
 // Video info endpoint
@@ -142,6 +147,15 @@ app.get('/playlist/:playlistId', async (req, res) => {
             details: error.message
         });
     }
+});
+
+// Add this test endpoint
+app.get('/test', (req, res) => {
+    res.json({
+        message: 'Test endpoint working',
+        headers: req.headers,
+        apiKey: req.headers['x-api-key'] === process.env.API_KEY ? 'valid' : 'invalid'
+    });
 });
 
 // Error handling middleware
