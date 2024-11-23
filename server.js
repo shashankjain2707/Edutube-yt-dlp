@@ -112,32 +112,23 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Add cookies and user-agent options
+        // Simplified command focusing on direct streaming formats
         const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
             --no-check-certificate \
             --no-cache-dir \
             --no-warnings \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            --add-header "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
-            --add-header "Accept-Language: en-US,en;q=0.5" \
-            --add-header "DNT: 1" \
-            --add-header "Connection: keep-alive" \
-            --add-header "Upgrade-Insecure-Requests: 1" \
-            --add-header "Sec-Fetch-Dest: document" \
-            --add-header "Sec-Fetch-Mode: navigate" \
-            --add-header "Sec-Fetch-Site: none" \
-            --add-header "Sec-Fetch-User: ?1" \
-            --geo-bypass \
             --no-playlist \
+            --no-cookies \
+            --format-sort quality \
+            --prefer-free-formats \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         console.log('Executing command:', command);
 
         const env = {
             ...process.env,
-            PYTHONHTTPSVERIFY: '0',
-            REQUESTS_CA_BUNDLE: '/etc/ssl/certs/ca-certificates.crt',
-            SSL_CERT_FILE: '/etc/ssl/certs/ca-certificates.crt'
+            PYTHONHTTPSVERIFY: '0'
         };
 
         exec(command, { 
@@ -149,8 +140,8 @@ function getVideoInfo(videoId) {
                 console.error('Command execution error:', error);
                 console.error('stderr:', stderr);
                 
-                // Try with a different format if first attempt fails
-                const fallbackCommand = `yt-dlp -f "best[ext=mp4]/best" --no-check-certificate --geo-bypass -j "https://youtube.com/watch?v=${videoId}"`;
+                // Try fallback format
+                const fallbackCommand = `yt-dlp -f "best[ext=mp4]/best" --no-check-certificate --no-cookies -j "https://youtube.com/watch?v=${videoId}"`;
                 exec(fallbackCommand, { timeout: 60000, env: env }, (fallbackError, fallbackStdout, fallbackStderr) => {
                     if (fallbackError) {
                         reject(new Error(`yt-dlp error: ${stderr || error.message}`));
