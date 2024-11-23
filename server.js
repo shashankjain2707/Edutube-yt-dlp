@@ -114,11 +114,23 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Remove cookies-from-browser and simplify the command
-        const command = `yt-dlp -v --no-warnings --format-sort-force --no-check-certificates -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" -j "https://youtube.com/watch?v=${videoId}"`;
+        // Add --no-check-certificate and update format selection
+        const command = `yt-dlp --no-check-certificate --no-warnings --format-sort-force -f "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" --no-playlist --extract-audio --add-header "Accept-Language:en-US,en;q=0.9" -j "https://youtube.com/watch?v=${videoId}"`;
         console.log('Executing command:', command);
         
-        exec(command, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+        // Add environment variables to help with SSL
+        const env = {
+            ...process.env,
+            PYTHONHTTPSVERIFY: '0',
+            REQUESTS_CA_BUNDLE: '',
+            SSL_CERT_FILE: ''
+        };
+        
+        exec(command, { 
+            timeout: 60000, 
+            maxBuffer: 10 * 1024 * 1024,
+            env: env 
+        }, (error, stdout, stderr) => {
             if (error) {
                 console.error('Command execution error:', error);
                 console.error('stderr:', stderr);
@@ -303,9 +315,16 @@ app.get('/test-video-formats/:videoId', async (req, res) => {
     const { videoId } = req.params;
     
     try {
-        // Simplified test command
-        const command = `yt-dlp -F --no-warnings --no-check-certificates "https://youtube.com/watch?v=${videoId}"`;
-        exec(command, (error, stdout, stderr) => {
+        // Add environment variables and SSL options
+        const env = {
+            ...process.env,
+            PYTHONHTTPSVERIFY: '0',
+            REQUESTS_CA_BUNDLE: '',
+            SSL_CERT_FILE: ''
+        };
+        
+        const command = `yt-dlp --no-check-certificate --no-warnings -F "https://youtube.com/watch?v=${videoId}"`;
+        exec(command, { env: env }, (error, stdout, stderr) => {
             res.json({
                 error: error?.message,
                 formats: stdout?.trim(),
