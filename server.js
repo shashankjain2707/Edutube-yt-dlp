@@ -159,66 +159,45 @@ app.get('/playlist/:playlistId', async (req, res) => {
     }
 });
 
-// Update video endpoint with proper Netscape cookie format
+// Update video endpoint to use cookies-from-browser
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
-    const youtubeToken = req.headers['youtube-token'];
-    
-    if (!youtubeToken) {
-        return res.status(401).json({ error: 'YouTube token required' });
-    }
     
     try {
-        // Create a temporary cookies file with proper Netscape format
-        const cookiesPath = path.join(__dirname, `${videoId}_cookies.txt`);
-        const cookieData = `# Netscape HTTP Cookie File
-# https://curl.haxx.se/rfc/cookie_spec.html
-# This is a generated file!  Do not edit.
-
-.youtube.com	TRUE	/	TRUE	${Math.floor(Date.now() / 1000) + 3600}	GOOGLE_OAUTH_TOKEN	${youtubeToken}
-.youtube.com	TRUE	/	TRUE	${Math.floor(Date.now() / 1000) + 3600}	LOGIN_INFO	${youtubeToken}
-.youtube.com	TRUE	/	TRUE	${Math.floor(Date.now() / 1000) + 3600}	CONSENT	YES+cb
-.youtube.com	TRUE	/	FALSE	${Math.floor(Date.now() / 1000) + 3600}	VISITOR_INFO1_LIVE	random_string`;
-
-        fs.writeFileSync(cookiesPath, cookieData);
-        
-        // Use the cookies file with yt-dlp
+        // Try with Chromium first, fallback to Firefox
         const command = `yt-dlp \
             --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-            --cookies "${cookiesPath}" \
+            --cookies-from-browser chromium \
             --no-warnings \
             --no-call-home \
             --no-playlist \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
-            // Clean up cookies file
-            try {
-                fs.unlinkSync(cookiesPath);
-            } catch (e) {
-                console.error('Error deleting cookies file:', e);
-            }
-            
             if (error) {
-                return res.status(500).json({ 
-                    error: 'Failed to get video URL',
-                    details: stderr
+                // Try Firefox if Chromium fails
+                const firefoxCommand = `yt-dlp \
+                    --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+                    --cookies-from-browser firefox \
+                    --no-warnings \
+                    --no-call-home \
+                    --no-playlist \
+                    -j "https://youtube.com/watch?v=${videoId}"`;
+                
+                exec(firefoxCommand, { timeout: 60000 }, (ffError, ffStdout, ffStderr) => {
+                    if (ffError) {
+                        return res.status(500).json({ 
+                            error: 'Failed to get video URL',
+                            details: `Both browsers failed. Chrome: ${stderr}, Firefox: ${ffStderr}`
+                        });
+                    }
+                    processVideoInfo(ffStdout, res);
                 });
+                return;
             }
             
-            const info = JSON.parse(stdout);
-            const formats = info.formats
-                .filter(f => f.ext === 'mp4' && f.url)
-                .map(f => ({
-                    url: f.url,
-                    height: f.height || 0,
-                    fps: f.fps || 0,
-                    vcodec: f.vcodec || ''
-                }))
-                .sort((a, b) => b.height - a.height);
-
-            res.json({ formats });
+            processVideoInfo(stdout, res);
         });
     } catch (error) {
         res.status(500).json({ 
@@ -227,6 +206,28 @@ app.get('/video/:videoId', async (req, res) => {
         });
     }
 });
+
+function processVideoInfo(stdout, res) {
+    try {
+        const info = JSON.parse(stdout);
+        const formats = info.formats
+            .filter(f => f.ext === 'mp4' && f.url)
+            .map(f => ({
+                url: f.url,
+                height: f.height || 0,
+                fps: f.fps || 0,
+                vcodec: f.vcodec || ''
+            }))
+            .sort((a, b) => b.height - a.height);
+
+        res.json({ formats });
+    } catch (e) {
+        res.status(500).json({ 
+            error: 'Failed to parse video info',
+            details: e.message
+        });
+    }
+}
 
 // Add this test endpoint
 app.get('/test', (req, res) => {
