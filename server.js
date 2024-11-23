@@ -112,15 +112,19 @@ app.get('/video/:videoId', async (req, res) => {
 
 function getVideoInfo(videoId) {
     return new Promise((resolve, reject) => {
-        // Simplify the command and add more debug options
-        const command = `yt-dlp --verbose --no-check-certificate --no-cache-dir --format mp4 -j "https://youtube.com/watch?v=${videoId}"`;
+        // Add --no-check-certificates and other options to bypass SSL verification
+        const command = `yt-dlp --no-check-certificates --no-warnings --no-call-home --prefer-insecure --format "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b" -j "https://youtube.com/watch?v=${videoId}"`;
         console.log('Executing command:', command);
         
+        // Add environment variables to disable SSL verification
         const env = {
             ...process.env,
             PYTHONHTTPSVERIFY: '0',
             PYTHONWARNINGS: 'ignore:Unverified HTTPS request',
-            PATH: process.env.PATH
+            REQUESTS_CA_BUNDLE: '',
+            SSL_CERT_FILE: '',
+            CURL_CA_BUNDLE: '',
+            NODE_TLS_REJECT_UNAUTHORIZED: '0'
         };
 
         exec(command, { 
@@ -157,7 +161,6 @@ function getVideoInfo(videoId) {
                     .sort((a, b) => b.height - a.height);
 
                 if (formats.length === 0) {
-                    // If no MP4 formats, try getting direct URL
                     formats.push({
                         url: info.url,
                         ext: 'mp4',
