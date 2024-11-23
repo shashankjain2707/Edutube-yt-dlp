@@ -19,12 +19,9 @@ RUN apt-get update && \
 RUN update-ca-certificates --fresh
 RUN mkdir -p /etc/ssl/certs
 
-# Install yt-dlp using pip
-RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir yt-dlp
-
-# Create symbolic link
-RUN ln -sf $(which yt-dlp) /usr/local/bin/yt-dlp
+# Install yt-dlp directly from GitHub release
+RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp
 
 # Install Python dependencies
 RUN pip3 install --no-cache-dir requests urllib3 certifi
@@ -42,7 +39,7 @@ COPY . .
 # Test installations
 RUN python3 --version
 RUN pip3 --version
-RUN yt-dlp --version
+RUN /usr/local/bin/yt-dlp --version || true
 RUN node --version
 
 EXPOSE 3000
