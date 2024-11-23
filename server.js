@@ -151,13 +151,16 @@ app.get('/video/:videoId', async (req, res) => {
     
     try {
         console.log(`Processing video request for ID: ${videoId}`);
-        // Simplified command for direct video URL
-        const command = `yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+        // Using public access method with specific format selection
+        const command = `yt-dlp -f "bestvideo[ext=mp4][protocol^=http]+bestaudio[ext=m4a][protocol^=http]/best[ext=mp4][protocol^=http]/best" \
             --no-check-certificate \
-            --no-warnings \
+            --extractor-args "youtube:player_client=android" \
             --no-playlist \
             --no-call-home \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            --no-warnings \
+            --user-agent "Mozilla/5.0 (Android 12; Mobile; rv:68.0) Gecko/68.0 Firefox/96.0" \
+            --add-header "Accept-Language: en-US,en;q=0.5" \
+            --add-header "DNT: 1" \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         console.log('Executing command:', command);
@@ -166,8 +169,7 @@ app.get('/video/:videoId', async (req, res) => {
             timeout: 60000,
             env: {
                 ...process.env,
-                PYTHONHTTPSVERIFY: '0',
-                PYTHONWARNINGS: 'ignore:Unverified HTTPS request'
+                PYTHONHTTPSVERIFY: '0'
             }
         }, (error, stdout, stderr) => {
             if (error) {
@@ -182,8 +184,15 @@ app.get('/video/:videoId', async (req, res) => {
             
             try {
                 const info = JSON.parse(stdout);
+                // Filter for HTTP-only formats to ensure public access
                 const formats = info.formats
-                    .filter(f => f.ext === 'mp4' && f.url && f.vcodec !== 'none')
+                    .filter(f => 
+                        f.ext === 'mp4' && 
+                        f.url && 
+                        f.url.startsWith('http') && 
+                        f.vcodec !== 'none' &&
+                        !f.url.includes('manifest')
+                    )
                     .map(f => ({
                         url: f.url,
                         ext: f.ext,
@@ -194,20 +203,13 @@ app.get('/video/:videoId', async (req, res) => {
                         vcodec: f.vcodec || 'none',
                         acodec: f.acodec || 'none',
                         tbr: f.tbr || 0,
-                        fps: f.fps || 0
+                        fps: f.fps || 0,
+                        protocol: f.protocol
                     }))
                     .sort((a, b) => b.height - a.height);
 
                 if (formats.length === 0) {
-                    // Try to get direct URL if no formats found
-                    formats.push({
-                        url: info.url,
-                        ext: 'mp4',
-                        height: info.height || 720,
-                        width: info.width || 1280,
-                        filesize: 0,
-                        format_note: 'Default'
-                    });
+                    throw new Error('No public formats available');
                 }
 
                 const response = {
@@ -219,7 +221,7 @@ app.get('/video/:videoId', async (req, res) => {
                     videoId: videoId
                 };
 
-                console.log(`Found ${formats.length} valid formats`);
+                console.log(`Found ${formats.length} valid public formats`);
                 res.json(response);
             } catch (e) {
                 console.error('Parse error:', e);
