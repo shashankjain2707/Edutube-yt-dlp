@@ -1,32 +1,23 @@
-FROM node:16
+FROM python:3.8-slim
 
-# Install dependencies and add deadsnakes PPA for Python 3.8
+# Install Node.js and other dependencies
 RUN apt-get update && \
-    apt-get install -y software-properties-common && \
-    add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update && \
     apt-get install -y \
-        python3.8 \
-        python3.8-distutils \
-        python3-pip \
-        ffmpeg \
-        curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install pip for Python 3.8
-RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
-    python3.8 get-pip.py && \
-    rm get-pip.py
-
-# Set Python 3.8 as default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
+    curl \
+    ffmpeg \
+    gnupg && \
+    # Add NodeSource repository
+    curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
+    apt-get install -y nodejs && \
+    # Clean up
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp
-RUN python3.8 -m pip install --no-cache-dir --upgrade pip && \
-    python3.8 -m pip install --no-cache-dir yt-dlp==2023.11.16
+RUN pip install --no-cache-dir yt-dlp==2023.11.16
 
-# Verify installation
-RUN python3.8 -m yt_dlp --version
+# Verify yt-dlp installation
+RUN yt-dlp --version
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -39,8 +30,10 @@ RUN npm install
 COPY . .
 
 # Final verification
-RUN which python3.8
-RUN python3.8 -m yt_dlp --version
+RUN which yt-dlp
+RUN yt-dlp --version
+RUN node --version
+RUN python3 --version
 
 EXPOSE 3000
 
