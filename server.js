@@ -10,22 +10,46 @@ app.use((req, res, next) => {
     next();
 });
 
-// Update CORS configuration at the top of the file
+// Update CORS configuration to be more permissive
 const corsOptions = {
-    origin: '*',
-    methods: ['GET', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'x-api-key', 'Accept', 'Authorization'],
-    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    origin: function (origin, callback) {
+        // Allow all origins
+        callback(null, true);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'x-api-key', 'Accept', 'Authorization', 'Origin', 'X-Requested-With'],
     credentials: true,
     preflightContinue: false,
-    optionsSuccessStatus: 204
+    optionsSuccessStatus: 200
 };
 
 // Apply CORS to all routes
 app.use(cors(corsOptions));
 
-// Add preflight handler for all routes
+// Add OPTIONS handler for preflight requests
 app.options('*', cors(corsOptions));
+
+// Add headers middleware to ensure CORS works
+app.use((req, res, next) => {
+    // Allow all origins
+    res.header('Access-Control-Allow-Origin', '*');
+    
+    // Allow all methods
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    
+    // Allow all headers
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-api-key, Authorization');
+    
+    // Allow credentials
+    res.header('Access-Control-Allow-Credentials', true);
+    
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
+    next();
+});
 
 // Rate limiting
 const limiter = rateLimit({
@@ -45,9 +69,7 @@ app.get('/health', (req, res) => {
 app.use((req, res, next) => {
     // Skip API key check for health check, test endpoints, and OPTIONS
     if (req.path === '/health' || 
-        req.path === '/test-ytdlp' || 
-        req.path === '/test-ytdlp-path' ||
-        req.path === '/test' ||
+        req.path.startsWith('/test') || 
         req.method === 'OPTIONS') {
         return next();
     }
@@ -57,14 +79,6 @@ app.use((req, res, next) => {
         console.log('Unauthorized access attempt');
         return res.status(401).json({ error: 'Unauthorized' });
     }
-    next();
-});
-
-// Add custom headers middleware
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS, POST, PUT, PATCH, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Accept, Authorization');
     next();
 });
 
