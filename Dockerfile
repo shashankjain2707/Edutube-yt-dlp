@@ -5,33 +5,26 @@ RUN apt-get update && \
     apt-get install -y \
     curl \
     ffmpeg \
-    gnupg \
-    ca-certificates \
-    openssl \
-    wget \
-    python3-pip && \
-    curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
-    apt-get install -y nodejs && \
+    wget && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-
-# Update certificates
-RUN update-ca-certificates --fresh
 
 # Install yt-dlp
 RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp
 
 # Create app directory
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Install app dependencies
-COPY package*.json ./
-RUN npm install
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Bundle app source
+# Copy application
 COPY . .
 
-EXPOSE 3000
+# Expose port
+EXPOSE 8000
 
-CMD [ "node", "server.js" ]
+# Run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
