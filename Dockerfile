@@ -11,8 +11,7 @@ RUN apt-get update && \
     wget \
     python3-pip \
     chromium \
-    chromium-driver \
-    firefox-esr && \
+    chromium-driver && \
     curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && \
@@ -20,15 +19,33 @@ RUN apt-get update && \
 
 # Update certificates
 RUN update-ca-certificates --fresh
-RUN mkdir -p /etc/ssl/certs
 
-# Install yt-dlp directly
+# Install yt-dlp
 RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp
 
-# Create necessary directories
-RUN mkdir -p /root/.config/chromium
-RUN mkdir -p /root/.mozilla/firefox
+# Create Chrome user directory and cookies
+RUN mkdir -p /root/.config/chromium/Default && \
+    echo '{ \
+        "timestamp": 0, \
+        "cookies": [ \
+            { \
+                "name": "CONSENT", \
+                "value": "YES+", \
+                "domain": ".youtube.com", \
+                "path": "/" \
+            }, \
+            { \
+                "name": "VISITOR_INFO1_LIVE", \
+                "value": "random", \
+                "domain": ".youtube.com", \
+                "path": "/" \
+            } \
+        ] \
+    }' > /root/.config/chromium/Default/Cookies
+
+# Set permissions
+RUN chmod -R 777 /root/.config/chromium
 
 # Create app directory
 WORKDIR /usr/src/app
