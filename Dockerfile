@@ -6,23 +6,19 @@ RUN apt-get update && \
     curl \
     ffmpeg \
     gnupg \
-    ca-certificates && \
+    ca-certificates \
+    openssl && \
     curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Update certificates
+# Update certificates and create SSL directory
 RUN update-ca-certificates
-
-# Install yt-dlp
-RUN pip install --no-cache-dir yt-dlp==2023.11.16 requests
-
-# Create necessary directories
 RUN mkdir -p /etc/ssl/certs
 
-# Verify yt-dlp installation
-RUN yt-dlp --version
+# Install yt-dlp with specific options
+RUN pip install --no-cache-dir yt-dlp==2023.11.16 requests urllib3 certifi
 
 # Create app directory
 WORKDIR /usr/src/app
