@@ -153,25 +153,42 @@ app.get('/playlist/:playlistId', async (req, res) => {
     }
 });
 
-// Update video endpoint to use only Chromium
+// Update video endpoint to use direct cookies
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
     
     try {
+        // Create a temporary cookies file
+        const cookiesPath = path.join(__dirname, `${videoId}_cookies.txt`);
+        const cookieData = `# Netscape HTTP Cookie File
+.youtube.com	TRUE	/	FALSE	2147483647	CONSENT	YES+cb
+.youtube.com	TRUE	/	FALSE	2147483647	VISITOR_INFO1_LIVE	random_string
+.youtube.com	TRUE	/	FALSE	2147483647	GPS	1
+.youtube.com	TRUE	/	FALSE	2147483647	YSC	${Math.random().toString(36).substring(7)}`;
+
+        fs.writeFileSync(cookiesPath, cookieData);
+
         const command = `yt-dlp \
             --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
             --no-check-certificate \
             --no-warnings \
             --no-call-home \
             --no-playlist \
-            --user-agent "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            --cookies "${cookiesPath}" \
+            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             --add-header "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" \
             --add-header "Accept-Language: en-US,en;q=0.5" \
             --add-header "DNT: 1" \
-            --cookies-from-browser chromium \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
         exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
+            // Clean up cookies file
+            try {
+                fs.unlinkSync(cookiesPath);
+            } catch (e) {
+                console.error('Error deleting cookies file:', e);
+            }
+
             if (error) {
                 console.error('yt-dlp error:', error);
                 console.error('stderr:', stderr);
