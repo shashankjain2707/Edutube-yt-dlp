@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install system dependencies including Chrome
 RUN apt-get update && \
     apt-get install -y \
     curl \
@@ -9,7 +9,10 @@ RUN apt-get update && \
     ca-certificates \
     openssl \
     wget \
-    python3-pip && \
+    python3-pip \
+    chromium \
+    chromium-driver \
+    firefox-esr && \
     curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && \
@@ -23,6 +26,10 @@ RUN mkdir -p /etc/ssl/certs
 RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
     chmod a+rx /usr/local/bin/yt-dlp
 
+# Create necessary directories
+RUN mkdir -p /root/.config/chromium
+RUN mkdir -p /root/.mozilla/firefox
+
 # Create app directory
 WORKDIR /usr/src/app
 
@@ -33,14 +40,6 @@ RUN npm install
 # Bundle app source
 COPY . .
 
-# Test installations
-RUN python3 --version
-RUN /usr/local/bin/yt-dlp --version || true
-RUN node --version
-
 EXPOSE 3000
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/health || exit 1
 
 CMD [ "node", "server.js" ]
