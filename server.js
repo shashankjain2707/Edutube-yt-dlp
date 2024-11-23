@@ -159,104 +159,45 @@ app.get('/playlist/:playlistId', async (req, res) => {
     }
 });
 
-// Update video endpoint to use YouTube token
+// Update video endpoint to work without cookies
 app.get('/video/:videoId', async (req, res) => {
     const { videoId } = req.params;
-    const youtubeToken = req.headers['youtube-token'];
-    
-    if (!videoId.match(/^[a-zA-Z0-9_-]{11}$/)) {
-        return res.status(400).json({ error: 'Invalid video ID' });
-    }
-    
-    if (!youtubeToken) {
-        return res.status(401).json({ error: 'YouTube token required' });
-    }
     
     try {
-        console.log(`Processing video request for ID: ${videoId}`);
-        // Use YouTube token in the command
+        // Get direct video URL using yt-dlp
         const command = `yt-dlp \
             --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
             --no-check-certificate \
             --no-warnings \
             --no-call-home \
-            --access-token "${youtubeToken}" \
             --no-playlist \
             -j "https://youtube.com/watch?v=${videoId}"`;
             
-        console.log('Executing command:', command);
-
-        exec(command, { 
-            timeout: 60000,
-            env: {
-                ...process.env,
-                PYTHONHTTPSVERIFY: '0'
-            }
-        }, (error, stdout, stderr) => {
+        exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
             if (error) {
-                console.error('Command execution error:', error);
-                console.error('stderr:', stderr);
                 return res.status(500).json({ 
-                    error: 'Failed to fetch video info',
-                    details: stderr || error.message,
-                    videoId: videoId
+                    error: 'Failed to get video URL',
+                    details: stderr
                 });
             }
             
-            try {
-                const info = JSON.parse(stdout);
-                const formats = info.formats
-                    .filter(f => 
-                        f.ext === 'mp4' && 
-                        f.url && 
-                        f.vcodec !== 'none' &&
-                        !f.url.includes('manifest')
-                    )
-                    .map(f => ({
-                        url: f.url,
-                        ext: f.ext,
-                        height: f.height || 0,
-                        width: f.width || 0,
-                        filesize: f.filesize || 0,
-                        format_note: f.format_note || '',
-                        vcodec: f.vcodec || 'none',
-                        acodec: f.acodec || 'none',
-                        tbr: f.tbr || 0,
-                        fps: f.fps || 0,
-                        protocol: f.protocol
-                    }))
-                    .sort((a, b) => b.height - a.height);
+            const info = JSON.parse(stdout);
+            const formats = info.formats
+                .filter(f => f.ext === 'mp4' && f.url)
+                .map(f => ({
+                    url: f.url,
+                    height: f.height || 0,
+                    fps: f.fps || 0,
+                    vcodec: f.vcodec || ''
+                }))
+                .sort((a, b) => b.height - a.height);
 
-                const response = {
-                    formats,
-                    title: info.title || 'Untitled',
-                    description: info.description || '',
-                    thumbnail: info.thumbnail || '',
-                    duration: info.duration || 0,
-                    videoId: videoId,
-                    uploader: info.uploader || '',
-                    uploadDate: info.upload_date || '',
-                    viewCount: info.view_count || 0
-                };
-
-                console.log(`Found ${formats.length} valid formats`);
-                res.json(response);
-            } catch (e) {
-                console.error('Parse error:', e);
-                console.error('Raw stdout:', stdout);
-                res.status(500).json({ 
-                    error: 'Failed to parse video info',
-                    details: e.message,
-                    videoId: videoId
-                });
-            }
+            res.json({ formats });
         });
     } catch (error) {
-        console.error('Error processing video:', error);
         res.status(500).json({ 
             error: 'Server error',
-            details: error.message,
-            videoId: videoId
+            details: error.message
         });
     }
 });
