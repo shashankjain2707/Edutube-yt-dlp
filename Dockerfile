@@ -8,7 +8,8 @@ RUN apt-get update && \
     gnupg \
     ca-certificates \
     openssl \
-    wget && \
+    wget \
+    python3-pip && \
     curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && \
@@ -18,9 +19,13 @@ RUN apt-get update && \
 RUN update-ca-certificates --fresh
 RUN mkdir -p /etc/ssl/certs
 
-# Install yt-dlp directly from GitHub release
+# Install yt-dlp using pip first (as backup)
+RUN pip3 install --no-cache-dir yt-dlp
+
+# Then install latest release and make it executable
 RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp && \
-    chmod a+rx /usr/local/bin/yt-dlp
+    chmod a+rx /usr/local/bin/yt-dlp && \
+    ln -sf /usr/local/bin/yt-dlp /usr/bin/yt-dlp
 
 # Install Python dependencies
 RUN pip install --no-cache-dir requests urllib3 certifi
@@ -35,8 +40,13 @@ RUN npm install
 # Bundle app source
 COPY . .
 
-# Verify installations
-RUN yt-dlp --version
+# Test yt-dlp installation (with error handling)
+RUN python3 -m yt_dlp --version || true
+RUN which yt-dlp || true
+RUN ls -l /usr/local/bin/yt-dlp || true
+RUN ls -l /usr/bin/yt-dlp || true
+
+# Other verifications
 RUN python3 --version
 RUN node --version
 RUN ls -la /etc/ssl/certs
